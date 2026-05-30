@@ -31,6 +31,40 @@ python samples/stock_agent/stock_agent.py --offline --direction 高股息
 python samples/stock_agent/stock_agent.py --quotes samples/stock_agent/sample_quotes.json
 ```
 
+## 页面操作界面
+
+启动 Web 页面：
+
+```bash
+python samples/stock_agent/web_agent.py
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:8000/
+```
+
+页面支持：
+
+- 切换离线样例行情或实时行情。
+- 按市场筛选：美股 `US`、港股 `HK`、A 股 `A`。
+- 按关注方向筛选，例如 `AI算力`、`高股息`、`消费龙头`。
+- 展示股票现价、PE、股息率、建议买入价、状态和偏离比例。
+- 展示推荐击球点卡片。
+
+也可以修改端口或默认行情源：
+
+```bash
+python samples/stock_agent/web_agent.py --port 8080 --source live
+```
+
+如果需要给其他程序读取结构化结果，可以访问 JSON API：
+
+```text
+http://127.0.0.1:8000/api/report?source=offline&market=HK
+```
+
 ## 股票池配置
 
 配置文件是 JSON，核心字段如下：

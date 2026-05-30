@@ -8,6 +8,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import stock_agent
+import web_agent
 
 
 class StockAgentTest(unittest.TestCase):
@@ -89,6 +90,24 @@ class StockAgentTest(unittest.TestCase):
         self.assertIn('股票追踪 Agent 报告', report)
         self.assertIn('推荐击球点', report)
         self.assertIn('000001', report)
+
+    def test_web_app_builds_page_and_json_report(self):
+        base = os.path.dirname(os.path.abspath(__file__))
+        app = web_agent.StockWebApp(
+            os.path.join(base, 'watchlist.example.json'),
+            os.path.join(base, 'sample_quotes.json'),
+            default_source='offline',
+        )
+
+        report = app.build_report({'source': ['offline'], 'market': ['HK'], 'top': ['2']})
+        page = web_agent.render_page(report)
+        payload = web_agent.report_to_json(report)
+
+        self.assertIn('股票追踪 Agent', page)
+        self.assertIn('腾讯控股', page)
+        self.assertIn('汇丰控股', page)
+        self.assertEqual(len(payload['stocks']), 2)
+        self.assertEqual(payload['source'], 'offline')
 
 
 if __name__ == '__main__':
