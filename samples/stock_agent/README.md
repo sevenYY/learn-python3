@@ -18,6 +18,8 @@ python samples/stock_agent/stock_agent.py --offline
 python samples/stock_agent/stock_agent.py --config samples/stock_agent/watchlist.example.json
 ```
 
+CLI 不带 `--offline` 时会走实时行情；`--offline` 只用于演示和测试。
+
 按市场或方向过滤：
 
 ```bash
@@ -33,7 +35,7 @@ python samples/stock_agent/stock_agent.py --quotes samples/stock_agent/sample_qu
 
 ## 页面操作界面
 
-启动 Web 页面：
+启动 Web 页面（默认实时行情，每次请求都会重新拉取，不使用浏览器缓存）：
 
 ```bash
 python samples/stock_agent/web_agent.py
@@ -53,10 +55,11 @@ http://127.0.0.1:8000/
 - 展示股票现价、PE、股息率、建议买入价、状态和偏离比例。
 - 展示推荐击球点卡片。
 
-也可以修改端口或默认行情源：
+也可以修改端口或切到离线演示数据：
 
 ```bash
-python samples/stock_agent/web_agent.py --port 8080 --source live
+python samples/stock_agent/web_agent.py --port 8080
+python samples/stock_agent/web_agent.py --source offline
 ```
 
 如果需要给其他程序读取结构化结果，可以访问 JSON API：
@@ -73,7 +76,7 @@ http://127.0.0.1:8000/api/report?source=offline&market=HK
 - 港股：Yahoo Finance quote API。
 - A 股：东方财富 quote API 获取最新价和 PE，东方财富 F10 分红融资数据按最近 12 个月现金分红合计计算 TTM 股息率。
 
-如果某个云环境无法访问外部行情接口，页面仍可切换到离线样例行情。
+如果某个云环境无法访问外部行情接口，页面会明确报错；需要演示界面时可手动切换到离线样例行情。离线样例只用于演示，不代表最新行情。
 
 ## 股票池配置
 

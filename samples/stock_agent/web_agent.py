@@ -128,7 +128,7 @@ tbody tr:hover { background: #f9fafb; }
 
 class StockWebApp(object):
 
-    def __init__(self, config_path: str, quote_path: str, default_source: str = 'offline'):
+    def __init__(self, config_path: str, quote_path: str, default_source: str = 'live'):
         self.config_path = config_path
         self.quote_path = quote_path
         self.default_source = default_source
@@ -212,6 +212,8 @@ def make_handler(app: StockWebApp):
         def respond(self, code, body, content_type):
             self.send_response(code)
             self.send_header('Content-Type', content_type)
+            self.send_header('Cache-Control', 'no-store, max-age=0')
+            self.send_header('Pragma', 'no-cache')
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -242,7 +244,7 @@ def render_page(report: Dict[str, object]) -> str:
     <section class="hero">
       <div>
         <h1>股票追踪 Agent</h1>
-        <p>跟踪港股、美股、A 股的关注方向，展示股价、PE、股息率和合适买入价。</p>
+        <p>跟踪港股、美股、A 股的关注方向；默认实时拉取，每次打开页面都会重新请求行情。</p>
       </div>
       <span class="badge">%s</span>
     </section>
@@ -474,7 +476,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         '--source',
         choices=('offline', 'live'),
-        default='offline',
+        default='live',
         help='default page data source',
     )
     return parser.parse_args(argv)

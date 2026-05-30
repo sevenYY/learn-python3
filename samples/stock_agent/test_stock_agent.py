@@ -182,12 +182,19 @@ class StockAgentTest(unittest.TestCase):
         report = stock_agent.render_report(evaluations, top=3)
 
         self.assertEqual(len(evaluations), 6)
+        aapl = next(row for row in evaluations if row.item.symbol == 'AAPL')
+        self.assertEqual(aapl.quote.price, 312.06)
         maotai = next(row for row in evaluations if row.item.symbol == '600519')
         self.assertEqual(maotai.quote.price, 1326.0)
         self.assertAlmostEqual(maotai.quote.dividend_yield, 0.0392)
         self.assertIn('股票追踪 Agent 报告', report)
         self.assertIn('推荐击球点', report)
         self.assertIn('000001', report)
+
+    def test_web_parse_args_defaults_to_live_source(self):
+        args = web_agent.parse_args([])
+
+        self.assertEqual(args.source, 'live')
 
     def test_web_app_builds_page_and_json_report(self):
         base = os.path.dirname(os.path.abspath(__file__))

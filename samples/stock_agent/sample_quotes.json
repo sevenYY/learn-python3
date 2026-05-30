@@ -1,12 +1,12 @@
 {
-  "source": "offline-sample",
+  "source": "offline-sample-not-live",
   "quotes": {
     "AAPL": {
       "name": "Apple Inc.",
       "currency": "USD",
-      "price": 188.5,
+      "price": 312.06,
       "pe": 29.2,
-      "eps": 6.45,
+      "eps": 10.69,
       "dividendYield": 0.0051,
       "annualDividend": 1.0
     },
