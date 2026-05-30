@@ -1,0 +1,61 @@
+{
+  "name": "长期方向股票池",
+  "defaults": {
+    "safety_margin": 0.2
+  },
+  "directions": {
+    "AI算力": "云计算、芯片、AI基础设施",
+    "高股息": "现金流稳定、分红可持续",
+    "消费龙头": "品牌壁垒和长期定价权"
+  },
+  "stocks": [
+    {
+      "symbol": "AAPL",
+      "market": "US",
+      "name": "Apple",
+      "direction": "AI算力",
+      "target_pe": 24,
+      "target_dividend_yield": 0.006
+    },
+    {
+      "symbol": "MSFT",
+      "market": "US",
+      "name": "Microsoft",
+      "direction": "AI算力",
+      "target_pe": 28,
+      "target_dividend_yield": 0.008
+    },
+    {
+      "symbol": "0700",
+      "market": "HK",
+      "name": "腾讯控股",
+      "direction": "AI算力",
+      "target_pe": 18,
+      "target_dividend_yield": 0.01
+    },
+    {
+      "symbol": "0005",
+      "market": "HK",
+      "name": "汇丰控股",
+      "direction": "高股息",
+      "target_pe": 9,
+      "target_dividend_yield": 0.055
+    },
+    {
+      "symbol": "600519",
+      "market": "A",
+      "name": "贵州茅台",
+      "direction": "消费龙头",
+      "target_pe": 22,
+      "target_dividend_yield": 0.025
+    },
+    {
+      "symbol": "000001",
+      "market": "A",
+      "name": "平安银行",
+      "direction": "高股息",
+      "target_pe": 6,
+      "target_dividend_yield": 0.05
+    }
+  ]
+}
