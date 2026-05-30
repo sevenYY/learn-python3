@@ -34,7 +34,7 @@ class StockAgentTest(unittest.TestCase):
             symbol='TEST',
             name='Test Co',
             currency='USD',
-            price=90,
+            price=82,
             pe=15,
             dividend_yield=0.03,
             eps=6,
