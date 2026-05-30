@@ -4,26 +4,26 @@
     "AAPL": {
       "name": "Apple Inc.",
       "currency": "USD",
-      "price": 188.50,
-      "pe": 29.20,
+      "price": 188.5,
+      "pe": 29.2,
       "eps": 6.45,
       "dividendYield": 0.0051,
-      "annualDividend": 1.00
+      "annualDividend": 1.0
     },
     "MSFT": {
       "name": "Microsoft Corporation",
       "currency": "USD",
-      "price": 420.00,
-      "pe": 34.50,
+      "price": 420.0,
+      "pe": 34.5,
       "eps": 12.17,
       "dividendYield": 0.0075,
-      "annualDividend": 3.00
+      "annualDividend": 3.0
     },
     "0700.HK": {
       "name": "腾讯控股",
       "currency": "HKD",
-      "price": 365.00,
-      "pe": 20.10,
+      "price": 365.0,
+      "pe": 20.1,
       "eps": 18.16,
       "dividendYield": 0.012,
       "annualDividend": 4.38
@@ -31,8 +31,8 @@
     "0005.HK": {
       "name": "汇丰控股",
       "currency": "HKD",
-      "price": 68.50,
-      "pe": 7.60,
+      "price": 68.5,
+      "pe": 7.6,
       "eps": 9.01,
       "dividendYield": 0.062,
       "annualDividend": 4.25
@@ -40,17 +40,17 @@
     "600519.SS": {
       "name": "贵州茅台",
       "currency": "CNY",
-      "price": 1450.00,
-      "pe": 24.80,
+      "price": 1326.0,
+      "pe": 22.68,
       "eps": 58.47,
-      "dividendYield": 0.022,
-      "annualDividend": 31.90
+      "dividendYield": 0.0241,
+      "annualDividend": 31.9
     },
     "000001.SZ": {
       "name": "平安银行",
       "currency": "CNY",
-      "price": 10.80,
-      "pe": 4.80,
+      "price": 10.8,
+      "pe": 4.8,
       "eps": 2.25,
       "dividendYield": 0.067,
       "annualDividend": 0.72

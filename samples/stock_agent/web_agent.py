@@ -165,7 +165,7 @@ class StockWebApp(object):
     def _provider(self, source: str):
         if source == 'offline':
             return stock_agent.FixtureQuoteProvider.from_path(self.quote_path)
-        return stock_agent.YahooFinanceProvider()
+        return stock_agent.LiveQuoteProvider()
 
 
 def first_query(query: Dict[str, List[str]], key: str) -> Optional[str]:
@@ -254,7 +254,7 @@ def render_page(report: Dict[str, object]) -> str:
 </body>
 </html>''' % (
         PAGE_CSS,
-        '离线样例行情' if report['source'] == 'offline' else '实时 Yahoo Finance 行情',
+        '离线样例行情' if report['source'] == 'offline' else '实时行情（A股东方财富，美港股Yahoo）',
         render_filters(report, markets, directions),
         render_summary(evaluations),
         render_table(evaluations),

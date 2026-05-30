@@ -20,6 +20,50 @@ class StockAgentTest(unittest.TestCase):
         self.assertEqual(stock_agent.yahoo_symbol('600519', 'A'), '600519.SS')
         self.assertEqual(stock_agent.yahoo_symbol('000001', 'A'), '000001.SZ')
 
+    def test_eastmoney_helpers_parse_a_share_data(self):
+        self.assertEqual(stock_agent.eastmoney_secid('600519'), '1.600519')
+        self.assertEqual(stock_agent.eastmoney_secid('000001'), '0.000001')
+
+        item = stock_agent.WatchItem(
+            symbol='600519',
+            market='A',
+            direction='消费龙头',
+            name='贵州茅台',
+            yahoo_symbol='600519.SS',
+        )
+        quote = stock_agent.quote_from_eastmoney({
+            'f43': 132600,
+            'f59': 2,
+            'f58': '贵州茅台',
+            'f162': 22.68,
+        }, item)
+
+        self.assertEqual(quote.source, 'eastmoney')
+        self.assertEqual(quote.currency, 'CNY')
+        self.assertAlmostEqual(quote.price, 1326.0)
+        self.assertAlmostEqual(quote.pe, 22.68)
+        self.assertAlmostEqual(quote.eps, 1326.0 / 22.68)
+
+    def test_eastmoney_dividend_payload_supports_f10_shapes(self):
+        payload = {
+            'Result': {
+                'Data': [
+                    {
+                        'REPORT_DATE': '2025-12-31',
+                        'CASHBTAXRMB': 276.91,
+                    }
+                ]
+            }
+        }
+        self.assertAlmostEqual(
+            stock_agent.annual_dividend_from_eastmoney_payload(payload),
+            27.691,
+        )
+        self.assertAlmostEqual(
+            stock_agent.annual_dividend_from_text('10派276.91元'),
+            27.691,
+        )
+
     def test_evaluate_uses_conservative_buy_price(self):
         item = stock_agent.WatchItem(
             symbol='TEST',
@@ -87,6 +131,8 @@ class StockAgentTest(unittest.TestCase):
         report = stock_agent.render_report(evaluations, top=3)
 
         self.assertEqual(len(evaluations), 6)
+        maotai = next(row for row in evaluations if row.item.symbol == '600519')
+        self.assertEqual(maotai.quote.price, 1326.0)
         self.assertIn('股票追踪 Agent 报告', report)
         self.assertIn('推荐击球点', report)
         self.assertIn('000001', report)

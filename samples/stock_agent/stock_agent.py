@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -136,6 +137,21 @@ def yahoo_symbol(symbol: str, market: str) -> str:
     raise ValueError('Unsupported market: %s' % market)
 
 
+def a_share_code(symbol: str) -> str:
+    return symbol.strip().upper().split('.')[0]
+
+
+def eastmoney_symbol_prefix(symbol: str) -> str:
+    code = a_share_code(symbol)
+    return 'SH' if code.startswith(('5', '6', '9')) else 'SZ'
+
+
+def eastmoney_secid(symbol: str) -> str:
+    code = a_share_code(symbol)
+    market_id = '1' if eastmoney_symbol_prefix(code) == 'SH' else '0'
+    return '%s.%s' % (market_id, code)
+
+
 def load_watchlist(path: str) -> Tuple[Dict[str, Any], List[WatchItem]]:
     with open(path, 'r', encoding='utf-8') as f:
         config = json.load(f)
@@ -186,6 +202,76 @@ class YahooFinanceProvider(object):
             for raw in result
             if raw.get('symbol')
         }
+
+
+class EastMoneyAShareProvider(object):
+    QUOTE_URL = 'https://push2.eastmoney.com/api/qt/stock/get'
+    BONUS_URL = 'https://emweb.securities.eastmoney.com/PC_HSF10/BonusFinancing/PageAjax'
+    QUOTE_FIELDS = ','.join([
+        'f43', 'f57', 'f58', 'f59', 'f107', 'f152',
+        'f161', 'f162', 'f163', 'f164', 'f167', 'f168', 'f169', 'f170',
+    ])
+
+    def __init__(self, timeout: int = 10):
+        self.timeout = timeout
+
+    def fetch(self, items: Iterable[WatchItem]) -> Dict[str, Quote]:
+        quotes = {}
+        for item in items:
+            if item.market != MARKET_A:
+                continue
+            quote = self.fetch_one(item)
+            quotes[item.yahoo_symbol] = quote
+        return quotes
+
+    def fetch_one(self, item: WatchItem) -> Quote:
+        payload = self._get_json(self.QUOTE_URL, {
+            'fltt': '2',
+            'invt': '2',
+            'secid': eastmoney_secid(item.symbol),
+            'fields': self.QUOTE_FIELDS,
+        }, referer='https://quote.eastmoney.com/')
+        data = payload.get('data') or {}
+        quote = quote_from_eastmoney(data, item)
+
+        annual_dividend = self.fetch_annual_dividend(item)
+        if annual_dividend is not None:
+            quote.annual_dividend = annual_dividend
+            if quote.price and quote.price > 0:
+                quote.dividend_yield = annual_dividend / quote.price
+        return quote
+
+    def fetch_annual_dividend(self, item: WatchItem) -> Optional[float]:
+        payload = self._get_json(self.BONUS_URL, {
+            'code': '%s%s' % (eastmoney_symbol_prefix(item.symbol), a_share_code(item.symbol)),
+        }, referer='https://emweb.securities.eastmoney.com/')
+        return annual_dividend_from_eastmoney_payload(payload)
+
+    def _get_json(self, url: str, params: Dict[str, str], referer: str) -> Dict[str, Any]:
+        query = parse.urlencode(params)
+        req = request.Request('%s?%s' % (url, query))
+        req.add_header('User-Agent', 'Mozilla/5.0 stock-agent/1.0')
+        req.add_header('Referer', referer)
+        with request.urlopen(req, timeout=self.timeout) as response:
+            text = response.read().decode('utf-8')
+        return json.loads(strip_jsonp(text))
+
+
+class LiveQuoteProvider(object):
+    def __init__(self, timeout: int = 10):
+        self.yahoo = YahooFinanceProvider(timeout=timeout)
+        self.eastmoney = EastMoneyAShareProvider(timeout=timeout)
+
+    def fetch(self, items: Iterable[WatchItem]) -> Dict[str, Quote]:
+        item_list = list(items)
+        quotes = {}
+        yahoo_items = [item for item in item_list if item.market != MARKET_A]
+        a_share_items = [item for item in item_list if item.market == MARKET_A]
+        if yahoo_items:
+            quotes.update(self.yahoo.fetch(yahoo_items))
+        if a_share_items:
+            quotes.update(self.eastmoney.fetch(a_share_items))
+        return quotes
 
 
 class FixtureQuoteProvider(object):
@@ -244,6 +330,99 @@ def quote_from_raw(raw: Dict[str, Any], source: str) -> Quote:
         annual_dividend=annual_dividend,
         source=source,
     )
+
+
+def quote_from_eastmoney(raw: Dict[str, Any], item: WatchItem) -> Quote:
+    price = eastmoney_price(raw.get('f43'), raw.get('f59') or raw.get('f152'))
+    pe = first_float(raw, 'f162', 'f161', 'f163', 'f9', 'f115')
+    return Quote(
+        symbol=item.yahoo_symbol,
+        name=raw.get('f58') or item.name,
+        currency='CNY',
+        price=price,
+        pe=pe,
+        dividend_yield=None,
+        eps=price / pe if price and pe and pe > 0 else None,
+        annual_dividend=None,
+        source='eastmoney',
+    )
+
+
+def eastmoney_price(value: Any, scale: Any = None) -> Optional[float]:
+    number = coerce_float(value)
+    if number is None or number < 0:
+        return None
+    scale_number = coerce_float(scale)
+    if isinstance(value, int) and scale_number is not None and scale_number >= 0:
+        return number / (10 ** int(scale_number))
+    return number
+
+
+def strip_jsonp(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith('{') or stripped.startswith('['):
+        return stripped
+    match = re.search(r'^[^(]+\((.*)\)\s*;?$', stripped, re.S)
+    if match:
+        return match.group(1)
+    return stripped
+
+
+def annual_dividend_from_eastmoney_payload(payload: Any) -> Optional[float]:
+    for record in walk_dicts(payload):
+        direct = annual_dividend_from_record(record)
+        if direct is not None:
+            return direct
+    return None
+
+
+def annual_dividend_from_record(record: Dict[str, Any]) -> Optional[float]:
+    cash_keys = [
+        'CASHBTAXRMB',
+        'CASH_BTAX_RMB',
+        'CASH_DIVIDEND_RATIO',
+        'PRETAX_BONUS_RMB',
+        'BONUS_RATIO_RMB',
+    ]
+    for key in cash_keys:
+        value = coerce_float(record.get(key))
+        if value and value > 0:
+            # EastMoney F10 cash dividend fields are usually RMB per 10 shares.
+            return value / 10
+
+    text_keys = [
+        'IMPL_PLAN_PROFILE',
+        'DISTRIBUTION_PLAN',
+        'PLAN_EXPLAIN',
+        'ASSIGNDSCRPT',
+    ]
+    for key in text_keys:
+        value = record.get(key)
+        if value:
+            parsed = annual_dividend_from_text(str(value))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def annual_dividend_from_text(text: str) -> Optional[float]:
+    match = re.search(r'10\s*(?:股)?\s*派\s*([0-9]+(?:\.[0-9]+)?)\s*元?', text)
+    if not match:
+        return None
+    amount = coerce_float(match.group(1))
+    if amount is None or amount <= 0:
+        return None
+    return amount / 10
+
+
+def walk_dicts(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk_dicts(child)
 
 
 def first_float(raw: Dict[str, Any], *keys: str) -> Optional[float]:
@@ -490,7 +669,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.offline and not quote_path:
         quote_path = default_path('sample_quotes.json')
 
-    provider = FixtureQuoteProvider.from_path(quote_path) if quote_path else YahooFinanceProvider()
+    provider = FixtureQuoteProvider.from_path(quote_path) if quote_path else LiveQuoteProvider()
     try:
         quotes = provider.fetch(items)
     except Exception as e:
