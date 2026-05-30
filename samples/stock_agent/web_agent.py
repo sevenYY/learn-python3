@@ -254,7 +254,7 @@ def render_page(report: Dict[str, object]) -> str:
 </body>
 </html>''' % (
         PAGE_CSS,
-        '离线样例行情' if report['source'] == 'offline' else '实时行情（A股东方财富，美港股Yahoo）',
+        '离线样例行情' if report['source'] == 'offline' else '实时行情（美股Nasdaq，港股Yahoo，A股东方财富）',
         render_filters(report, markets, directions),
         render_summary(evaluations),
         render_table(evaluations),

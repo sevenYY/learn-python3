@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib import parse, request
 
@@ -204,6 +205,86 @@ class YahooFinanceProvider(object):
         }
 
 
+class NasdaqUSQuoteProvider(object):
+    URL = 'https://api.nasdaq.com/api/quote/%s/info'
+
+    def __init__(self, timeout: int = 10):
+        self.timeout = timeout
+
+    def fetch(self, items: Iterable[WatchItem]) -> Dict[str, Quote]:
+        quotes = {}
+        for item in items:
+            if item.market != MARKET_US:
+                continue
+            quote = self.fetch_one(item)
+            quotes[item.yahoo_symbol] = quote
+        return quotes
+
+    def fetch_one(self, item: WatchItem) -> Quote:
+        query = parse.urlencode({'assetclass': 'stocks'})
+        url = '%s?%s' % (self.URL % parse.quote(item.yahoo_symbol), query)
+        req = request.Request(url)
+        req.add_header('User-Agent', 'Mozilla/5.0 stock-agent/1.0')
+        req.add_header('Accept', 'application/json, text/plain, */*')
+        req.add_header('Origin', 'https://www.nasdaq.com')
+        req.add_header('Referer', 'https://www.nasdaq.com/')
+        with request.urlopen(req, timeout=self.timeout) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+        return quote_from_nasdaq(payload, item)
+
+
+class YahooChartQuoteProvider(object):
+    URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s'
+
+    def __init__(self, timeout: int = 10):
+        self.timeout = timeout
+
+    def fetch(self, items: Iterable[WatchItem]) -> Dict[str, Quote]:
+        quotes = {}
+        for item in items:
+            quote = self.fetch_one(item)
+            quotes[item.yahoo_symbol] = quote
+        return quotes
+
+    def fetch_one(self, item: WatchItem) -> Quote:
+        query = parse.urlencode({
+            'range': '1d',
+            'interval': '1m',
+            'includePrePost': 'false',
+        })
+        url = '%s?%s' % (self.URL % parse.quote(item.yahoo_symbol), query)
+        req = request.Request(url)
+        req.add_header('User-Agent', 'Mozilla/5.0 stock-agent/1.0')
+        with request.urlopen(req, timeout=self.timeout) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+        return quote_from_yahoo_chart(payload, item)
+
+
+class USLatestPriceProvider(object):
+    def __init__(self, timeout: int = 10):
+        self.nasdaq = NasdaqUSQuoteProvider(timeout=timeout)
+        self.yahoo_chart = YahooChartQuoteProvider(timeout=timeout)
+
+    def fetch(self, items: Iterable[WatchItem]) -> Dict[str, Quote]:
+        quotes = {}
+        for item in items:
+            if item.market != MARKET_US:
+                continue
+            quote = self.fetch_one(item)
+            if quote is not None:
+                quotes[item.yahoo_symbol] = quote
+        return quotes
+
+    def fetch_one(self, item: WatchItem) -> Optional[Quote]:
+        try:
+            return self.nasdaq.fetch_one(item)
+        except Exception:
+            try:
+                return self.yahoo_chart.fetch_one(item)
+            except Exception:
+                return None
+
+
 class EastMoneyAShareProvider(object):
     QUOTE_URL = 'https://push2.eastmoney.com/api/qt/stock/get'
     BONUS_URL = 'https://emweb.securities.eastmoney.com/PC_HSF10/BonusFinancing/PageAjax'
@@ -245,7 +326,7 @@ class EastMoneyAShareProvider(object):
         payload = self._get_json(self.BONUS_URL, {
             'code': '%s%s' % (eastmoney_symbol_prefix(item.symbol), a_share_code(item.symbol)),
         }, referer='https://emweb.securities.eastmoney.com/')
-        return annual_dividend_from_eastmoney_payload(payload)
+        return annual_dividend_ttm_from_eastmoney_payload(payload)
 
     def _get_json(self, url: str, params: Dict[str, str], referer: str) -> Dict[str, Any]:
         query = parse.urlencode(params)
@@ -260,15 +341,20 @@ class EastMoneyAShareProvider(object):
 class LiveQuoteProvider(object):
     def __init__(self, timeout: int = 10):
         self.yahoo = YahooFinanceProvider(timeout=timeout)
+        self.us_latest = USLatestPriceProvider(timeout=timeout)
         self.eastmoney = EastMoneyAShareProvider(timeout=timeout)
 
     def fetch(self, items: Iterable[WatchItem]) -> Dict[str, Quote]:
         item_list = list(items)
         quotes = {}
         yahoo_items = [item for item in item_list if item.market != MARKET_A]
+        us_items = [item for item in item_list if item.market == MARKET_US]
         a_share_items = [item for item in item_list if item.market == MARKET_A]
         if yahoo_items:
             quotes.update(self.yahoo.fetch(yahoo_items))
+        if us_items:
+            latest_quotes = self.us_latest.fetch(us_items)
+            quotes = merge_quotes(quotes, latest_quotes)
         if a_share_items:
             quotes.update(self.eastmoney.fetch(a_share_items))
         return quotes
@@ -332,6 +418,79 @@ def quote_from_raw(raw: Dict[str, Any], source: str) -> Quote:
     )
 
 
+def quote_from_nasdaq(payload: Dict[str, Any], item: WatchItem) -> Quote:
+    data = payload.get('data') or {}
+    primary = data.get('primaryData') or {}
+    price = parse_market_price(primary.get('lastSalePrice') or data.get('lastSalePrice'))
+    return Quote(
+        symbol=item.yahoo_symbol,
+        name=data.get('companyName') or item.name,
+        currency='USD',
+        price=price,
+        pe=None,
+        dividend_yield=None,
+        eps=None,
+        annual_dividend=None,
+        source='nasdaq',
+    )
+
+
+def quote_from_yahoo_chart(payload: Dict[str, Any], item: WatchItem) -> Quote:
+    result = (payload.get('chart') or {}).get('result') or []
+    data = result[0] if result else {}
+    meta = data.get('meta') or {}
+    price = first_latest_close(data)
+    if price is None:
+        price = coerce_float(meta.get('regularMarketPrice'))
+    return Quote(
+        symbol=item.yahoo_symbol,
+        name=item.name,
+        currency=meta.get('currency') or ('USD' if item.market == MARKET_US else ''),
+        price=price,
+        pe=None,
+        dividend_yield=None,
+        eps=None,
+        annual_dividend=None,
+        source='yahoo-chart',
+    )
+
+
+def first_latest_close(chart_result: Dict[str, Any]) -> Optional[float]:
+    indicators = chart_result.get('indicators') or {}
+    quote_sets = indicators.get('quote') or []
+    if not quote_sets:
+        return None
+    closes = quote_sets[0].get('close') or []
+    for value in reversed(closes):
+        number = coerce_float(value)
+        if number is not None:
+            return number
+    return None
+
+
+def parse_market_price(value: Any) -> Optional[float]:
+    if isinstance(value, str):
+        value = value.replace('$', '').replace('HK$', '').replace('USD', '').strip()
+    return coerce_float(value)
+
+
+def merge_quotes(base: Dict[str, Quote], overlay: Dict[str, Quote]) -> Dict[str, Quote]:
+    merged = dict(base)
+    for symbol, latest in overlay.items():
+        current = merged.get(symbol)
+        if current is None:
+            merged[symbol] = latest
+        else:
+            if latest.price is not None:
+                current.price = latest.price
+            if latest.currency:
+                current.currency = latest.currency
+            if latest.name and not current.name:
+                current.name = latest.name
+            current.source = '%s+%s' % (current.source, latest.source)
+    return merged
+
+
 def quote_from_eastmoney(raw: Dict[str, Any], item: WatchItem) -> Quote:
     price = eastmoney_price(raw.get('f43'), raw.get('f59') or raw.get('f152'))
     pe = first_float(raw, 'f162', 'f161', 'f163', 'f9', 'f115')
@@ -369,11 +528,36 @@ def strip_jsonp(text: str) -> str:
 
 
 def annual_dividend_from_eastmoney_payload(payload: Any) -> Optional[float]:
+    return annual_dividend_ttm_from_eastmoney_payload(payload)
+
+
+def annual_dividend_ttm_from_eastmoney_payload(payload: Any, as_of=None) -> Optional[float]:
+    records = []
+    fallback = []
     for record in walk_dicts(payload):
-        direct = annual_dividend_from_record(record)
-        if direct is not None:
-            return direct
-    return None
+        dividend = annual_dividend_from_record(record)
+        if dividend is None:
+            continue
+        fallback.append(dividend)
+        date_value = dividend_record_date(record)
+        if date_value is not None:
+            records.append((date_value, dividend))
+
+    if not records:
+        return fallback[0] if fallback else None
+
+    if as_of is None:
+        as_of = datetime.now().date()
+    elif isinstance(as_of, datetime):
+        as_of = as_of.date()
+
+    start = as_of - timedelta(days=366)
+    ttm_values = [dividend for date_value, dividend in records if start <= date_value <= as_of]
+    if not ttm_values:
+        latest_date = max(date_value for date_value, _ in records)
+        start = latest_date - timedelta(days=366)
+        ttm_values = [dividend for date_value, dividend in records if start <= date_value <= latest_date]
+    return sum(ttm_values) if ttm_values else None
 
 
 def annual_dividend_from_record(record: Dict[str, Any]) -> Optional[float]:
@@ -402,6 +586,38 @@ def annual_dividend_from_record(record: Dict[str, Any]) -> Optional[float]:
             parsed = annual_dividend_from_text(str(value))
             if parsed is not None:
                 return parsed
+    return None
+
+
+def dividend_record_date(record: Dict[str, Any]):
+    date_keys = [
+        'EX_DIVIDEND_DATE',
+        'EX_DIVIDEND_DT',
+        'EQUITY_RECORD_DATE',
+        'REGISTRATION_DATE',
+        'IMPLEMENTATION_DATE',
+        'NOTICE_DATE',
+        'REPORT_DATE',
+    ]
+    for key in date_keys:
+        parsed = parse_date(record.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def parse_date(value: Any):
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    text = text.split('T')[0].split(' ')[0].replace('/', '-')
+    for fmt in ('%Y-%m-%d', '%Y%m%d'):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
     return None
 
 
